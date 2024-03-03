@@ -17,7 +17,7 @@
 
 {% else %}
 <div class="box">
-    <h3>Your mail: {{ user_email }}</h3>
+    <h3>Your mail: {{ email }}</h3>
     <br>
     <form action="/send_token" method="post">
         <button type="submit" class="btn" id="SendToken" onclick="startCooldown(this)">Send Token</button>
@@ -30,6 +30,7 @@
     </form>
     <br>
     <p id="InvalidToken" style="color: #ad0a0a"></p>
+    <h2>N.B. Tokens expire in 6 hours</h2>
 </div>
 
 <script src="{{ url_for('static', filename='token.js') }}"></script>

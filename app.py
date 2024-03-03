@@ -1,24 +1,24 @@
 import sqlite3
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import *
 from flask_session import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
 import time
-from celery import Celery
-from celery.schedules import crontab
+from apscheduler.schedulers.background import BackgroundScheduler
+from pytz import utc
 
-from helpers import check_int, error, login_required, merge_date_time, remove_t, send_mail, parse_datetime, generate_token_by_rn, is_within_six_hours, convert_to_utc
+from helpers import *
 from keys import SECRET_KEY
 
-# users.db
-
-"""     
-CREATE TABLE tasks (user_id INTEGER, 
-task_n INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-task_title TEXT NOT NULL, 
-task TEXT, 
-task_dt TEXT NOT NULL, 
-deadline TEXT NOT NULL, 
+"""
+users.db .schema:
+     
+CREATE TABLE tasks (user_id INTEGER,
+task_n INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+task_title TEXT NOT NULL,
+task TEXT,
+task_dt TEXT NOT NULL,
+deadline TEXT NOT NULL,
 reminders1 TEXT,
 reminders2 TEXT,
 reminders3 TEXT,
@@ -27,15 +27,20 @@ reminders5 TEXT,
 send INTEGER DEFAULT 0,
 FOREIGN KEY(user_id) REFERENCES users(id));
 
-CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-timezone TEXT,
-token TEXT,  
-username TEXT NOT NULL, 
+CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+timezone TEXT DEFAULT "Etc/GMT",
+token TEXT,
+username TEXT NOT NULL,
 hash TEXT NOT NULL,
 mail TEXT,
 verified INTEGER DEFAULT 0,
-exp INTEGER DEFAULT 0);
+token_time TEXT);
 """
+
+class Config:
+    SCHEDULER_API_ENABLED = True
+    JOBS_TIMEZONE = 'UTC'
+
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -43,11 +48,21 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 app.config['SECRET_KEY'] = SECRET_KEY
+app.config.from_object(Config())
+
+# Set background tasks (scheduled email sending)
+sched = BackgroundScheduler(timezone=utc)
+sched.start()
 
 
 # Set database
 con = sqlite3.connect("users.db", check_same_thread=False)
 db = con.cursor()
+
+
+def schedule_email(email_datetime, obj, body, recipient):
+    # Schedule the send_email_task to run at the specified datetime
+    sched.add_job(id=generate_token(6), func=send_mail, trigger='date', run_date=email_datetime, args=[obj, body, recipient])
 
 
 @app.after_request
@@ -131,16 +146,59 @@ def home():
     """Display tasks with a non-expired deadline"""
 
     user_id = session["user_id"]
-    rn = datetime.now()
+    rn = datetime.utcnow()
 
     # Fetch and filter tasks with a deadline greater than the current time
     tasks = db.execute("SELECT * FROM tasks WHERE user_id = ? AND deadline > ?", (user_id, rn)).fetchall()
+    deadlines = db.execute("SELECT deadline FROM tasks WHERE user_id = ? AND deadline > ?", (user_id, rn)).fetchall()
+    timezone = db.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()[0]
+    u_timezone_deadlines = [utc_to_user_timezone(i[0], timezone) for i in deadlines]
 
     # Remove tasks with an expired deadline from the database
     db.execute("DELETE FROM tasks WHERE user_id = ? AND deadline <= ?", (user_id, rn))
     con.commit()
 
-    return render_template("tasks.html", tasks=tasks)
+    user_email_row = db.execute("SELECT mail FROM users WHERE id = ? AND verified = 1", (user_id,)).fetchone()
+
+    if user_email_row:    # if email exists and is verified
+        user_email = user_email_row[0]  # Unpack the email from the tuple
+        all_reminders_notification_on_tuples = db.execute("SELECT reminders1, reminders2, reminders3, reminders4, reminders5, deadline, task_n FROM tasks WHERE user_id = ? AND send = 1", (user_id,)).fetchall()
+        print(all_reminders_notification_on_tuples)
+
+        all_reminders = []  # Initialize list to store all reminders with their task number
+
+        for reminder_data in all_reminders_notification_on_tuples:
+            task_n = reminder_data[-1]  # Extract the task number from the reminder data
+            reminders = reminder_data[:-1]  # Extract the reminder datetimes
+            all_reminders.extend([Reminder(reminder_datetime, task_n) for reminder_datetime in reminders if reminder_datetime is not None])  # Assign correct task number
+
+        print(all_reminders)
+
+        # Send emails for reminders
+        for reminder in all_reminders:
+            # Fetch task details from the database
+            task_info = db.execute("SELECT task_title, task, deadline FROM tasks WHERE user_id = ? AND task_n = ?", (user_id, reminder.task_n)).fetchone()
+
+            if task_info:
+                task_title = task_info[0]
+                task_description = task_info[1]
+                task_deadline = task_info[2]
+
+                username = db.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()[0]
+                body = f"Heya {username}!\nYou have a task with deadline \"{task_deadline}\" to get done!\nYou have to:\n\"{task_description}\""
+                print(reminder.reminder)
+
+                schedule_email(reminder.reminder, f"Task \"{task_title}\" Reminder", body, user_email)
+            else:
+                # Handle the case where no task details are found
+                print(f"No task found with task_n: {reminder.task_n}")
+
+    # Prepare data for rendering
+    task_data = []
+    for task, deadline in zip(tasks, u_timezone_deadlines):
+        task_data.append((task[1], task[2], deadline))
+
+    return render_template("tasks.html", task_data=task_data)
 
 
 @app.route("/task/<int:task_number>")
@@ -150,12 +208,13 @@ def task_details(task_number):
 
     user_id = session["user_id"]
     task = db.execute("SELECT * FROM tasks WHERE user_id = ? AND task_n = ?", (user_id, task_number)).fetchone()
+    timezone = db.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()[0]
 
     if not task:
         # Handle task not found
         return error("Task not found", 404)
 
-    return render_template("task_details.html", task=task)
+    return render_template("task_details.html", task=task, utc_to_user_timezone=utc_to_user_timezone, user_timezone=timezone, task_number=task_number)  # Pass task_number to the template
 
 
 @app.route("/save_reminders/<int:task_number>", methods=["POST"])
@@ -163,13 +222,14 @@ def task_details(task_number):
 def save_reminders(task_number):
     # Get the reminders from the form data
     reminders = [request.form.get(f"reminder{i+1}") for i in range(5)]
-    timezone = db.execute("SELECT timezone FROM users WHERE id = ?", (session['user_id'],)).fetchone()[0]
 
     # Update the reminders in the database
     for i, reminder_datetime in enumerate(reminders, start=1):
-        reminder_column = f"reminders{i}"  # Construct the column name dynamically
+        reminder_column = f"reminders{i}"  # Construct the column name
         if reminder_datetime:
-            reminder_datetime = convert_to_utc(remove_t(reminder_datetime), timezone)
+            reminder_datetime = remove_t(reminder_datetime)
+            if parse_datetime(reminder_datetime) < datetime.utcnow():
+                return error(f"Reminders cannot be before now and/or after the deadline. ({reminder_datetime} invalid)")
             db.execute(f"UPDATE tasks SET {reminder_column} = ? WHERE task_n = ?", (reminder_datetime, task_number))
         else:
             db.execute(f"UPDATE tasks SET {reminder_column} = NULL WHERE task_n = ?", (task_number,))
@@ -197,18 +257,21 @@ def nft(task_number):
     valid_reminders = []
 
     for i, r in enumerate(reminders, start=1):
-        reminder_datetime = parse_datetime(remove_t(r))
-        reminder_datetime = convert_to_utc(reminder_datetime, timezone)
-        if reminder_datetime < rn or reminder_datetime > task_deadline:
-            # Remove the reminder from the database
-            db.execute(f"UPDATE tasks SET reminders{i} = NULL WHERE task_n = ? AND reminders{i} = ?", (task_number, r))
-            con.commit()
-            return error("Reminders cannot be before now and/or after the deadline.")
-        else:
-            valid_reminders.append(r)
-            if r:   # store the reminder on the database if not null
+        if r:
+            reminder_datetime = parse_datetime(remove_t(r))
+            reminder_datetime = convert_to_utc(reminder_datetime, timezone)
+            if reminder_datetime < rn or reminder_datetime > task_deadline:
+                # Remove the reminder from the database
+                db.execute(f"UPDATE tasks SET reminders{i} = NULL WHERE task_n = ? AND reminders{i} = ?", (task_number, r))
+                con.commit()
+            else:
+                valid_reminders.append(r)
+                # Store the reminder in the database
                 db.execute(f"UPDATE tasks SET reminders{i} = ? WHERE task_n = ? AND user_id = ?", (reminder_datetime, task_number, user_id))
                 con.commit()
+        else:
+            # Handle the case where the reminder is None
+            valid_reminders.append(None)
 
     return render_template("notifications.html", task=task, reminders=valid_reminders)
 
@@ -232,9 +295,6 @@ def add():
              convert_to_utc(merge_date_time(request.form.get("date"), request.form.get("time")), timezone))
         )
 
-        # add 5 exp points for adding a task
-        db.execute("UPDATE users SET exp = exp + 5 WHERE id = ?", (user_id,))
-
         con.commit()
 
         return redirect("/")
@@ -250,9 +310,6 @@ def delete_task(task_number):
 
     user_id = session['user_id']
     db.execute("DELETE FROM tasks WHERE user_id = ? AND task_n = ?", (user_id, task_number))
-
-    # remove 5 exp for deleting a task
-    db.execute("UPDATE users SET exp = CASE WHEN exp >= 5 THEN exp - 5 ELSE 0 END WHERE id = ?", (user_id,))
 
     con.commit()
 
@@ -277,11 +334,12 @@ def set_nft():
 
     user_id = session["user_id"]
     rn = datetime.utcnow()
+    timezone = db.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()[0]
 
     # Fetch and filter tasks with a deadline greater than the current time
     tasks = db.execute("SELECT * FROM tasks WHERE user_id = ? AND deadline > ?", (user_id, rn)).fetchall()
 
-    return render_template("triggerNft.html", tasks=tasks)
+    return render_template("triggerNft.html", tasks=tasks, utc_to_user_timezone=utc_to_user_timezone, user_timezone=timezone)
 
 
 @app.route("/toggle_on_task_notifications/<int:task_number>", methods=["POST"])
@@ -291,14 +349,13 @@ def task_nft_on(task_number):
 
     user_id = session['user_id']
     tasks = db.execute("SELECT * FROM tasks WHERE user_id = ?", (user_id,)).fetchall()
+    timezone = db.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()[0]
 
     # set send column to 1 (True)
     db.execute("UPDATE tasks SET send = 1 WHERE task_n = ? AND user_id = ?", (task_number, user_id))
     con.commit()
 
-    time.sleep(0.5)
-
-    return render_template("TriggerNft.html", tasks=tasks)
+    return render_template("triggerNft.html", tasks=tasks, utc_to_user_timezone=utc_to_user_timezone, user_timezone=timezone)
 
 
 @app.route("/toggle_off_notifications/<int:task_number>", methods=["POST"])
@@ -308,14 +365,13 @@ def task_nft_off(task_number):
 
     user_id = session['user_id']
     tasks = db.execute("SELECT * FROM tasks WHERE user_id = ?", (user_id,)).fetchall()
+    timezone = db.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()[0]
 
     # set send column to 0 (False)
     db.execute("UPDATE tasks SET send = 0 WHERE task_n = ? AND user_id = ?", (task_number, user_id))
     con.commit()
 
-    time.sleep(0.5)
-
-    return render_template("TriggerNft.html", tasks=tasks)
+    return render_template("triggerNft.html", tasks=tasks, utc_to_user_timezone=utc_to_user_timezone, user_timezone=timezone)
 
 
 @app.route("/verify_email", methods=["GET", "POST"])
@@ -343,7 +399,7 @@ def verify_email():
         con.commit()
         return render_template("verifyEmail.html", verified=True)
 
-    return render_template("verifyEmail.html", verified=False, email=user_mail)
+    return render_template("verifyEmail.html", verified=False, email=user_mail[0])
 
 
 @app.route("/send_token", methods=["POST"])
@@ -394,3 +450,7 @@ def set_timezone():
         con.commit()
         time.sleep(0.5)
         return redirect("/")
+
+
+if __name__ == '__main__':
+    app.run()

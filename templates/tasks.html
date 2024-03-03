@@ -8,12 +8,12 @@
     <br>
     <h1>Tasks</h1>
 
-    {% if tasks %}
-        {% for task in tasks %}
+    {% if task_data %}
+        {% for task in task_data %}
             <div class="box" style="height: 150px">
-                <a href="{{ url_for('task_details', task_number=task[1]) }}">
-                    <h3>{{ task[2] }}</h3>
-                    <p>Deadline: {{ task[5] }}</p>
+                <a href="{{ url_for('task_details', task_number=task[0]) }}">  <!-- Pass task number to task details route-->
+                    <h3>{{ task[1] }}</h3>
+                    <p>Deadline: {{ task[2] }}</p>
                 </a>
             </div>
         {% endfor %}

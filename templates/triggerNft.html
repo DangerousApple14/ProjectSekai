@@ -10,9 +10,9 @@
     <div id="tasks-container">
         {% if tasks %}
             {% for task in tasks %}
-                <div class="box" style="height: 250px">
+                <div class="box" style="height: 300px">
                     <h3>{{ task[2] }}</h3>
-                    <p>Deadline: {{ task[5] }}</p>
+                    <p>Deadline: {{ utc_to_user_timezone(task[5], user_timezone) }}</p>  <!-- Convert UTC to user's timezone -->
                     <form action="/toggle_on_task_notifications/{{ task[1] }}" method="post">
                         <button class="btn" type="submit" onclick="emailOn()">Set email(s) on</button>
                     </form>

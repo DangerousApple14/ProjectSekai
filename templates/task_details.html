@@ -11,15 +11,15 @@
 <div class="box" style="height: auto">
     <h1>{{ task[2] }}</h1>
     <h3>{{ task[3] }}</h3>
-    <h4>Deadline: {{ task[5] }}</h4>
+    <h4>Deadline: {{ utc_to_user_timezone(task[5], user_timezone) }}</h4>  <!-- Convert UTC to user's timezone -->
 
     <br>
 
-    <form action="{{ url_for('nft', task_number=task[1]) }}" method="POST">
+    <form action="{{ url_for('nft', task_number=task_number) }}" method="POST">
         <input class="btn" type="submit" value="Set Reminders">
     </form>
 
-    <form action="{{ url_for('delete_task', task_number=task[1]) }}" method="POST">
+    <form action="{{ url_for('delete_task', task_number=task_number) }}" method="POST">
         <input class="btn" type="submit" value="Delete Task" onclick="return confirm('Are you sure you want to delete this task?');">
     </form>
 </div>

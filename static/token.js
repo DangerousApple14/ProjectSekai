@@ -72,17 +72,18 @@ function startCooldown(button) {
         button.textContent = `Wait ${cooldown} seconds`;
         cooldown--;
 
-        // When the cooldown is over, enable the button, reset the text, and submit the form
+        // When the cooldown is over, enable the button and reset the text
         if (cooldown < 0) {
             clearInterval(countdown);
             button.textContent = 'Send Token';
             button.disabled = false;
-
-            // Submit the form
-            button.closest('form').submit();
         }
     }, 1000);
+
+    // Submit the form
+    button.closest('form').submit();
 }
+
 
 // Add event listener to the form for form submission
 document.querySelector("form").addEventListener("submit", handleSubmit);

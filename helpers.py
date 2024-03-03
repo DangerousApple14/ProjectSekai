@@ -4,15 +4,21 @@ from email.message import EmailMessage
 import ssl
 import smtplib
 import hashlib
-from dateutil import tz
+import pytz
 
 from keys import EMAIL_PASSWORD
 from flask import redirect, render_template, session
 from functools import wraps
 
 
-def generate_token():
-    return secrets.token_hex(16)  # Generate a hex token of 16 bytes
+class Reminder:
+    def __init__(self, reminder, task_n):
+        self.reminder = reminder
+        self.task_n = task_n
+
+
+def generate_token(n=16):
+    return secrets.token_hex(n)  # Generate a hex token of 16 bytes
 
 
 def send_mail(obj, body, recipient, sender="st4rlight069@gmail.com"):
@@ -37,15 +43,6 @@ def escape(s):
                      ("%", "~p"), ("#", "~h"), ("/", "~s"), ("\"", "''")]:
         s = s.replace(old, new)
     return s
-
-
-def check_int(field):
-    """Check if field is only numeric"""
-    try:
-        int(field)
-    except ValueError:
-        return False
-    return True
 
 
 def error(msg, code=400):
@@ -142,15 +139,49 @@ def convert_to_utc(local_time_str, local_timezone_str):
         local_time = local_time_str
 
     # Get the local timezone object
-    local_tz = tz.gettz(local_timezone_str)
+    local_tz = pytz.timezone(local_timezone_str)
 
     # Attach the local timezone to the local time
-    local_time = local_time.replace(tzinfo=local_tz)
+    local_time = local_tz.localize(local_time)
 
     # Convert the localized time to UTC
-    utc_time = local_time.astimezone(tz.UTC)
+    utc_time = local_time.astimezone(pytz.utc)
 
     # Format the UTC datetime as a string without the "+00:00"
     utc_time_str = utc_time.strftime("%Y-%m-%d %H:%M:%S")
 
     return parse_datetime(utc_time_str)
+
+
+def sort_datetimes(datetime_list):
+    # Ensure all elements are strings
+    datetime_list = [str(dt) for dt in datetime_list]
+
+    # Parse the datetime strings into datetime objects
+    datetime_objects = [parse_datetime(dt) for dt in datetime_list if dt is not None]
+
+    # Filter out None values
+    datetime_objects = [dt for dt in datetime_objects if dt is not None]
+
+    # Sort and return the datetime objects
+    sorted_datetimes = sorted(datetime_objects)
+
+    """returns:
+    [datetime.datetime(yyyy1, mm1, dd1, hh1, mm1), datetime.datetime(yyyy2, mm2, dd2, hh2, mm2), ...]
+    """
+
+    return sorted_datetimes
+
+
+def utc_to_user_timezone(utc_datetime_str, user_timezone):
+    # Parse the UTC datetime string
+    utc_datetime = dt.datetime.strptime(utc_datetime_str, '%Y-%m-%d %H:%M:%S')
+
+    # Create a timezone object for the user's timezone
+    user_tz = pytz.timezone(user_timezone)
+
+    # Convert the datetime to the user's timezone
+    user_datetime = str(utc_datetime.replace(tzinfo=pytz.utc).astimezone(user_tz))
+
+    # :-6 cuz there is a "+hh:mm" in the end
+    return user_datetime[:-6]
