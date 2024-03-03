@@ -1,2 +1,0 @@
-SECRET_KEY = "4db4f4a47a422634322c5728da0281650c2d7be4c3467d41"
-EMAIL_PASSWORD = "ehnv zioo ciin thsd"
