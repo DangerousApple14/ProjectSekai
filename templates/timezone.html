@@ -9,7 +9,7 @@
 <div class="box" style="height: 550px; position: absolute; left: 0;">
     <h1>Select your timezone (default: UTC):</h1>
     <form action="/set_timezone" method="post">
-        <select name="timezone" class="form-control">
+        <select name="timezone" class="form-control">   <!-- Asked ChatGPT to make all the timezone options -->
             <option value="Etc/GMT+12">(UTC-12) Etc/GMT+12</option>
             <option value="Etc/GMT+11">(UTC-11) Etc/GMT+11</option>
             <option value="Etc/GMT+10">(UTC-10) Etc/GMT+10</option>
@@ -56,7 +56,7 @@
 
 
     <div class="box" id="utc_time" style="position: absolute; right: 0; height: 200px;">
-        <button type="button" id="utc_button" class="btn" onclick="displayUTCTime()">Show UTC current date and time</button>
+        <button type="button" id="utc_button" class="btn" onclick="displayUTCTime()">UTC/GMT current date and time</button>
         <br>
         <p id="utcTime" style="color: #ccbdbc"></p>
     </div>

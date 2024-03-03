@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    function validateEmail(email) {
+    function validateEmail(email) {     // Asked ChatGPT for this function in particular
         const re = /\S+@\S+\.\S+/;
         return re.test(email);
     }

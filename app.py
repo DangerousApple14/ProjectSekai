@@ -3,8 +3,7 @@ from flask import *
 from flask_session import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
-import time
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.background import BackgroundScheduler   # watched a YT tutorial and read documentation
 from pytz import utc
 
 from helpers import *
@@ -37,7 +36,8 @@ verified INTEGER DEFAULT 0,
 token_time TEXT);
 """
 
-class Config:
+
+class Config:   # Asked ChatGPT for this class
     SCHEDULER_API_ENABLED = True
     JOBS_TIMEZONE = 'UTC'
 
@@ -48,7 +48,7 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 app.config['SECRET_KEY'] = SECRET_KEY
-app.config.from_object(Config())
+app.config.from_object(Config())    # Asked ChatGPT for this config line
 
 # Set background tasks (scheduled email sending)
 sched = BackgroundScheduler(timezone=utc)
@@ -160,19 +160,19 @@ def home():
 
     user_email_row = db.execute("SELECT mail FROM users WHERE id = ? AND verified = 1", (user_id,)).fetchone()
 
-    if user_email_row:    # if email exists and is verified
+    if user_email_row:    # if (verified) email exists
         user_email = user_email_row[0]  # Unpack the email from the tuple
         all_reminders_notification_on_tuples = db.execute("SELECT reminders1, reminders2, reminders3, reminders4, reminders5, deadline, task_n FROM tasks WHERE user_id = ? AND send = 1", (user_id,)).fetchall()
-        print(all_reminders_notification_on_tuples)
+        # print(all_reminders_notification_on_tuples) <-- Needed to debug
 
         all_reminders = []  # Initialize list to store all reminders with their task number
 
-        for reminder_data in all_reminders_notification_on_tuples:
+        for reminder_data in all_reminders_notification_on_tuples:  # I asked chat GPT for this loop
             task_n = reminder_data[-1]  # Extract the task number from the reminder data
             reminders = reminder_data[:-1]  # Extract the reminder datetimes
             all_reminders.extend([Reminder(reminder_datetime, task_n) for reminder_datetime in reminders if reminder_datetime is not None])  # Assign correct task number
 
-        print(all_reminders)
+        #print(all_reminders) <-- Needed to debug
 
         # Send emails for reminders
         for reminder in all_reminders:
@@ -193,7 +193,7 @@ def home():
                 # Handle the case where no task details are found
                 print(f"No task found with task_n: {reminder.task_n}")
 
-    # Prepare data for rendering
+    # Prepare data for rendering (asked Chat GPT for this loop)
     task_data = []
     for task, deadline in zip(tasks, u_timezone_deadlines):
         task_data.append((task[1], task[2], deadline))
@@ -201,7 +201,7 @@ def home():
     return render_template("tasks.html", task_data=task_data)
 
 
-@app.route("/task/<int:task_number>")
+@app.route("/task/<int:task_number>")   # Discovered how to pass values by URL thanks to ChatGPT
 @login_required
 def task_details(task_number):
     """Display details of a specific task"""
@@ -215,28 +215,6 @@ def task_details(task_number):
         return error("Task not found", 404)
 
     return render_template("task_details.html", task=task, utc_to_user_timezone=utc_to_user_timezone, user_timezone=timezone, task_number=task_number)  # Pass task_number to the template
-
-
-@app.route("/save_reminders/<int:task_number>", methods=["POST"])
-@login_required
-def save_reminders(task_number):
-    # Get the reminders from the form data
-    reminders = [request.form.get(f"reminder{i+1}") for i in range(5)]
-
-    # Update the reminders in the database
-    for i, reminder_datetime in enumerate(reminders, start=1):
-        reminder_column = f"reminders{i}"  # Construct the column name
-        if reminder_datetime:
-            reminder_datetime = remove_t(reminder_datetime)
-            if parse_datetime(reminder_datetime) < datetime.utcnow():
-                return error(f"Reminders cannot be before now and/or after the deadline. ({reminder_datetime} invalid)")
-            db.execute(f"UPDATE tasks SET {reminder_column} = ? WHERE task_n = ?", (reminder_datetime, task_number))
-        else:
-            db.execute(f"UPDATE tasks SET {reminder_column} = NULL WHERE task_n = ?", (task_number,))
-
-    con.commit()
-
-    return redirect(url_for('nft', task_number=task_number))
 
 
 @app.route("/notifications/<int:task_number>", methods=["GET", "POST"])
@@ -274,6 +252,28 @@ def nft(task_number):
             valid_reminders.append(None)
 
     return render_template("notifications.html", task=task, reminders=valid_reminders)
+
+
+@app.route("/save_reminders/<int:task_number>", methods=["POST"])
+@login_required
+def save_reminders(task_number):
+    # Get the reminders from the form data
+    reminders = [request.form.get(f"reminder{i+1}") for i in range(5)]
+
+    # Update the reminders in the database
+    for i, reminder_datetime in enumerate(reminders, start=1):
+        reminder_column = f"reminders{i}"  # Construct the column name
+        if reminder_datetime:
+            reminder_datetime = remove_t(reminder_datetime)
+            if parse_datetime(reminder_datetime) < datetime.utcnow():
+                return error(f"Reminders cannot be before now and/or after the deadline. ({reminder_datetime} invalid)")
+            db.execute(f"UPDATE tasks SET {reminder_column} = ? WHERE task_n = ?", (reminder_datetime, task_number))
+        else:
+            db.execute(f"UPDATE tasks SET {reminder_column} = NULL WHERE task_n = ?", (task_number,))
+
+    con.commit()
+
+    return redirect(url_for('nft', task_number=task_number))    # ChatGPT made me learn url_for() function
 
 
 @app.route("/add", methods=["GET", "POST"])
@@ -330,7 +330,7 @@ def logout():
 @app.route("/set_notifications")
 @login_required
 def set_nft():
-    """Display tasks with a non-expired deadline"""
+    """Display tasks (with a non-expired deadline) with 2 buttons each: set notifications on and off"""
 
     user_id = session["user_id"]
     rn = datetime.utcnow()
@@ -448,7 +448,6 @@ def set_timezone():
     else:   # If POST and valid input, store timezone in database
         db.execute("UPDATE users SET timezone = ?", (timezone,))
         con.commit()
-        time.sleep(0.5)
         return redirect("/")
 
 

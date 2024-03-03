@@ -11,23 +11,27 @@ from flask import redirect, render_template, session
 from functools import wraps
 
 
-class Reminder:
+class Reminder:    # create a 'Reminder' object that has both the reminder datetime and its task number
     def __init__(self, reminder, task_n):
         self.reminder = reminder
         self.task_n = task_n
 
 
 def generate_token(n=16):
-    return secrets.token_hex(n)  # Generate a hex token of 16 bytes
+    return secrets.token_hex(n)  # Generate a hex token of (default) 16 bytes
 
 
-def send_mail(obj, body, recipient, sender="st4rlight069@gmail.com"):
+def send_mail(obj, body, recipient, sender="st4rlight069@gmail.com"):   # Send email function
     em = EmailMessage()
+
+    # Modify the em object's keys
     em['From'] = sender
     em['To'] = recipient
     em['Subject'] = obj
     em.set_content(body)
+
     context = ssl.create_default_context()
+
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as smtp:
         smtp.login(sender, EMAIL_PASSWORD)
         smtp.sendmail(sender, recipient, em.as_string())
@@ -45,7 +49,7 @@ def escape(s):
     return s
 
 
-def error(msg, code=400):
+def error(msg, code=400):   # return a meme with error message and code
     return render_template("error.html", img=f"https://api.memegen.link/images/ugandanknuck/{escape(msg)}/{code}_.png")
 
 
@@ -74,7 +78,7 @@ def merge_date_time(date_str, time_str):
     return datetime_obj
 
 
-def remove_t(datetime_obj):
+def remove_t(datetime_obj):     # needed for '/set_reminders' route, since it saves datetime strings in format 'yyyy-mm-ddThh-mm-ss'. I asked ChatGPT for this
     """
     Remove 'T' from the datetime object and return a string representation.
 
@@ -92,7 +96,7 @@ def remove_t(datetime_obj):
         raise ValueError("Invalid input type. Expected datetime object or string representation of datetime.")
 
 
-def parse_datetime(datetime_str):
+def parse_datetime(datetime_str):   # 'easier strptime' since it handles both datetime strings with and without seconds
     ZaWarudo = None
     try:
         ZaWarudo = dt.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
@@ -104,21 +108,20 @@ def parse_datetime(datetime_str):
     return ZaWarudo
 
 
-
-def generate_token_by_rn():
+def generate_token_by_rn():     # Asked ChatGPT for this algorithm
     """Generate a cryptic token based on the current date and time."""
     current_time = dt.datetime.utcnow()
     token = hashlib.sha256(str(current_time).encode()).hexdigest()
     return token, current_time
 
 
-def is_within_six_hours(time1, time2_str):
+def is_within_six_hours(time1, time2_str):     # check if 2 datetimes have 6 hours or less difference (return True or False accordingly)
     time2 = dt.datetime.strptime(time2_str, "%Y-%m-%d %H:%M:%S.%f")
     difference = abs(time1 - time2)
     return difference.total_seconds() <= 6*60*60
 
 
-def convert_to_utc(local_time_str, local_timezone_str):
+def convert_to_utc(local_time_str, local_timezone_str):     # I asked ChatGPT for pytz functions/methods
     """
     Convert a local time to UTC time based on the local timezone.
 
@@ -153,26 +156,6 @@ def convert_to_utc(local_time_str, local_timezone_str):
     return parse_datetime(utc_time_str)
 
 
-def sort_datetimes(datetime_list):
-    # Ensure all elements are strings
-    datetime_list = [str(dt) for dt in datetime_list]
-
-    # Parse the datetime strings into datetime objects
-    datetime_objects = [parse_datetime(dt) for dt in datetime_list if dt is not None]
-
-    # Filter out None values
-    datetime_objects = [dt for dt in datetime_objects if dt is not None]
-
-    # Sort and return the datetime objects
-    sorted_datetimes = sorted(datetime_objects)
-
-    """returns:
-    [datetime.datetime(yyyy1, mm1, dd1, hh1, mm1), datetime.datetime(yyyy2, mm2, dd2, hh2, mm2), ...]
-    """
-
-    return sorted_datetimes
-
-
 def utc_to_user_timezone(utc_datetime_str, user_timezone):
     # Parse the UTC datetime string
     utc_datetime = dt.datetime.strptime(utc_datetime_str, '%Y-%m-%d %H:%M:%S')
@@ -183,5 +166,5 @@ def utc_to_user_timezone(utc_datetime_str, user_timezone):
     # Convert the datetime to the user's timezone
     user_datetime = str(utc_datetime.replace(tzinfo=pytz.utc).astimezone(user_tz))
 
-    # :-6 cuz there is a "+hh:mm" in the end
+    # :-6 cuz there is a "+hh:mm" in the end of the string, which may confuse an user
     return user_datetime[:-6]
